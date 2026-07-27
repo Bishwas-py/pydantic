@@ -103,6 +103,13 @@ pub struct ModelSerializer {
     name: String,
 }
 
+impl ModelSerializer {
+    /// The model class, used by `PrebuiltSerializer`.
+    pub fn class(&self) -> &Py<PyType> {
+        &self.class
+    }
+}
+
 impl BuildSerializer for ModelSerializer {
     const EXPECTED_TYPE: &'static str = "model";
 

@@ -1394,3 +1394,35 @@ def test_wrap_ser_called_once() -> None:
 
     my_model = MyParentModel.model_validate({'nested': {'inner_value': 'foo'}})
     assert my_model.model_dump() == {'nested': {'inner_value': 'my_prefix:foo'}}
+
+
+def test_wrap_model_serializer_runs_once_when_reused_as_prebuilt() -> None:
+    """`pydantic-core` reuses the already built ("prebuilt") serializer of a completed model when
+    other models reference it. A `'wrap'` model serializer is applied around the `model` core
+    schema serializer, and is compiled inline by the referencing model, so the prebuilt serializer
+    is stripped down to the wrapped serializer to avoid applying the function twice.
+    """
+    calls: list[int] = []
+
+    class Inner(BaseModel):
+        x: int
+
+        @model_serializer(mode='wrap')
+        def ser(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+            calls.append(self.x)
+            data = handler(self)
+            data['extra'] = True
+            return data
+
+    class Outer(BaseModel):
+        inner: Inner
+
+    assert 'PrebuiltSerializer' in repr(Outer.__pydantic_serializer__)
+
+    outer = Outer.model_validate({'inner': {'x': 1}})
+    assert outer.model_dump() == {'inner': {'x': 1, 'extra': True}}
+    assert calls == [1]
+
+    calls.clear()
+    assert outer.model_dump_json() == '{"inner":{"x":1,"extra":true}}'
+    assert calls == [1]

@@ -193,3 +193,41 @@ def test_after_validator_wrong_signature() -> None:
     Model2()
     Model3()
     Model4()
+
+
+def test_after_and_wrap_model_validators_run_once_when_reused_as_prebuilt() -> None:
+    """`pydantic-core` reuses the already built ("prebuilt") validator of a completed model when other
+    models reference it. `'after'`/`'wrap'` model validators are applied outside of the `model` core
+    schema, and are compiled inline by the referencing model, so the prebuilt validator is stripped
+    down to the inner `model` validator to avoid running the function validators twice.
+    """
+    after_calls: list[Any] = []
+    wrap_calls: list[Any] = []
+
+    class InnerAfter(BaseModel):
+        x: int
+
+        @model_validator(mode='after')
+        def after_validator(self) -> InnerAfter:
+            after_calls.append(self.x)
+            return self
+
+    class InnerWrap(BaseModel):
+        x: int
+
+        @model_validator(mode='wrap')
+        @classmethod
+        def wrap_validator(cls, data: Any, handler: ValidatorFunctionWrapHandler) -> InnerWrap:
+            wrap_calls.append(data)
+            return cast(InnerWrap, handler(data))
+
+    class Outer(BaseModel):
+        after: InnerAfter
+        wrap: InnerWrap
+
+    # the inner models' validators are reused, stripped of the model validators:
+    assert repr(Outer.__pydantic_validator__).count('PrebuiltValidator') == 2
+
+    Outer.model_validate({'after': {'x': 1}, 'wrap': {'x': 2}})
+    assert after_calls == [1]
+    assert wrap_calls == [{'x': 2}]
