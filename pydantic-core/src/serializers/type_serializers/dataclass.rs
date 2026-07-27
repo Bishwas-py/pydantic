@@ -89,13 +89,6 @@ pub struct DataclassSerializer {
     name: String,
 }
 
-impl DataclassSerializer {
-    /// The dataclass, used by `PrebuiltSerializer`.
-    pub fn class(&self) -> &Py<PyType> {
-        &self.class
-    }
-}
-
 impl BuildSerializer for DataclassSerializer {
     const EXPECTED_TYPE: &'static str = "dataclass";
 

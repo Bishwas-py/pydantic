@@ -1426,3 +1426,38 @@ def test_wrap_model_serializer_runs_once_when_reused_as_prebuilt() -> None:
     calls.clear()
     assert outer.model_dump_json() == '{"inner":{"x":1,"extra":true}}'
     assert calls == [1]
+
+
+def test_polymorphic_serialization_preserved_when_wrap_serializer_model_reused_as_prebuilt() -> None:
+    """The prebuilt serializer of a model with a `'wrap'` model serializer delegates to the
+    serializer that the wrap function wraps. That serializer must retain the polymorphism
+    trampoline, so that serializing a subclass instance still dispatches to the subclass's own
+    serializer."""
+
+    class Inner(BaseModel):
+        model_config = ConfigDict(polymorphic_serialization=True)
+
+        x: int
+
+        @model_serializer(mode='wrap')
+        def ser(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+            data = handler(self)
+            data['which'] = 'base'
+            return data
+
+    class Sub(Inner):
+        @model_serializer(mode='wrap')
+        def ser(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+            data = handler(self)
+            data['which'] = 'sub'
+            return data
+
+    class Outer(BaseModel):
+        inner: Inner
+
+    # the prebuilt serializer of `Inner` is reused (stripped of the wrap function):
+    assert 'PrebuiltSerializer' in repr(Outer.__pydantic_serializer__)
+
+    outer = Outer(inner=Sub(x=1))
+    assert outer.model_dump() == {'inner': {'x': 1, 'which': 'sub'}}
+    assert outer.model_dump(polymorphic_serialization=False) == {'inner': {'x': 1, 'which': 'base'}}

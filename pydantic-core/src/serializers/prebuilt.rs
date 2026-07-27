@@ -61,17 +61,18 @@ impl PrebuiltSerializer {
             if let CombinedSerializer::FunctionWrap(function_serializer) = peeked.as_ref() {
                 let stripped = function_serializer.inner_serializer();
 
-                // Only delegate to the stripped serializer if it is actually the
-                // `model`/`dataclass` serializer of the class being referenced. Anything else
-                // means the schema was built in some non-standard way; conservatively compile
-                // inline instead.
+                // Only delegate to the stripped serializer if it is the polymorphism trampoline
+                // around the serializer of the class being referenced. The inner serializer of a
+                // `model`/`dataclass` schema is always built wrapped in a trampoline, and
+                // delegating to anything else (e.g. a bare model serializer) could skip the
+                // polymorphic subclass dispatch that inline compilation would preserve. Anything
+                // else also means the schema was built in some non-standard way; conservatively
+                // compile inline instead.
                 let class: Bound<'_, PyType> = schema.get_as_req(intern!(schema.py(), "cls"))?;
                 let class_matches = match stripped.as_ref() {
                     CombinedSerializer::PolymorphismTrampoline(trampoline) => {
                         trampoline.class.bind(schema.py()).is(&class)
                     }
-                    CombinedSerializer::Model(model_serializer) => model_serializer.class().is(&class),
-                    CombinedSerializer::Dataclass(dataclass_serializer) => dataclass_serializer.class().is(&class),
                     _ => false,
                 };
                 if !class_matches {

@@ -231,3 +231,54 @@ def test_after_and_wrap_model_validators_run_once_when_reused_as_prebuilt() -> N
     Outer.model_validate({'after': {'x': 1}, 'wrap': {'x': 2}})
     assert after_calls == [1]
     assert wrap_calls == [{'x': 2}]
+
+
+def test_model_config_isolated_when_validator_reused_as_prebuilt() -> None:
+    """Nested validation delegating to a referenced model's prebuilt validator must apply the
+    referenced model's own config, not the referencing model's (the `'model'` core schema carries
+    its own `'config'`, so this also holds for inline compilation)."""
+    from pydantic import ConfigDict, ValidationError
+
+    class StrictChild(BaseModel):
+        model_config = ConfigDict(strict=True)
+
+        x: int
+
+        @model_validator(mode='after')
+        def validate_model(self) -> StrictChild:
+            return self
+
+    class LaxParent(BaseModel):
+        model_config = ConfigDict(strict=False)
+
+        child: StrictChild
+        y: int
+
+    assert 'PrebuiltValidator' in repr(LaxParent.__pydantic_validator__)
+
+    # The parent's lax config still applies to its own fields:
+    validated = LaxParent.model_validate({'child': {'x': 1}, 'y': '2'})
+    assert validated.y == 2
+
+    # The child's strict config applies to the child, even when nested in a lax parent:
+    with pytest.raises(ValidationError, match='int_type'):
+        LaxParent.model_validate({'child': {'x': '1'}, 'y': 2})
+
+    class LaxChild(BaseModel):
+        model_config = ConfigDict(strict=False)
+
+        x: int
+
+        @model_validator(mode='after')
+        def validate_model(self) -> LaxChild:
+            return self
+
+    class StrictParent(BaseModel):
+        model_config = ConfigDict(strict=True)
+
+        child: LaxChild
+
+    assert 'PrebuiltValidator' in repr(StrictParent.__pydantic_validator__)
+
+    # The child's lax config applies to the child, even when nested in a strict parent:
+    assert StrictParent.model_validate({'child': {'x': '1'}}).child.x == 1
